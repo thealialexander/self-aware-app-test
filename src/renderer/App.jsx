@@ -10,16 +10,19 @@ function App() {
   const [isFocused, setIsFocused] = useState(true);
 
   useEffect(() => {
+    let removeFocus, removeBlur;
     if (window.electronAPI) {
-      window.electronAPI.onWindowFocus(() => setIsFocused(true));
-      window.electronAPI.onWindowBlur(() => setIsFocused(false));
+      removeFocus = window.electronAPI.onWindowFocus(() => setIsFocused(true));
+      removeBlur = window.electronAPI.onWindowBlur(() => setIsFocused(false));
     }
-    if (window.location.hash === '#/detached') {
+
+    const isDetached = window.location.hash === '#/detached';
+    if (isDetached) {
       setIsDetachedMode(true);
-      return;
     }
 
     const loadSavedCode = async () => {
+      if (isDetached) return;
       const code = await window.electronAPI.getSavedCode('frontend');
       if (code) {
         injectCode(code);
@@ -98,12 +101,17 @@ function App() {
     loadSavedCode();
 
     const handleUpdate = (e) => {
+      if (isDetached) return;
       console.log('Frontend update event received');
       injectCode(e.detail);
     };
 
     window.addEventListener('frontend-code-updated', handleUpdate);
-    return () => window.removeEventListener('frontend-code-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('frontend-code-updated', handleUpdate);
+      if (removeFocus) removeFocus();
+      if (removeBlur) removeBlur();
+    };
   }, []);
 
   if (isDetachedMode) {
