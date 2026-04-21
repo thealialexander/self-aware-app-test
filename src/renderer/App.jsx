@@ -7,8 +7,13 @@ function App() {
   const [showBackend, setShowBackend] = useState(false);
   const [isDetachedMode, setIsDetachedMode] = useState(false);
   const [Component, setComponent] = useState(null);
+  const [isFocused, setIsFocused] = useState(true);
 
   useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.onWindowFocus(() => setIsFocused(true));
+      window.electronAPI.onWindowBlur(() => setIsFocused(false));
+    }
     if (window.location.hash === '#/detached') {
       setIsDetachedMode(true);
       return;
@@ -110,6 +115,7 @@ function App() {
       <TitleBar
         onToggleBackend={() => setShowBackend(!showBackend)}
         isActive={showBackend}
+        isFocused={isFocused}
       />
       <div className="flex-1 relative overflow-hidden">
         {/* Initially blank slate or dynamic component */}
