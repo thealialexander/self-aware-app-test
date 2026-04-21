@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Send, Settings, ExternalLink, Trash2, X, Loader2,
   Play, FileCode, Package, Plus, MessageSquare,
-  ChevronRight, Save, History, Layout
+  ChevronRight, Save, History, Layout, ChevronDown, ChevronUp, Cpu
 } from 'lucide-react';
 import { callGemini, summarizeHistory } from '../services/gemini';
 import CodeApproval from './CodeApproval';
@@ -24,6 +24,7 @@ const BackendInterface = ({ isDetached, onClose }) => {
   const [showSettings, setShowSettings] = useState(!apiKey);
   const [model, setModel] = useState(localStorage.getItem('gemini_model') || 'gemini-2.0-flash-exp');
   const [debugLogs, setDebugLogs] = useState([]);
+  const [showLogs, setShowLogs] = useState(true);
   const [loading, setLoading] = useState(false);
   const [pendingCode, setPendingCode] = useState(null);
   const [view, setView] = useState('chat'); // 'chat', 'files', 'sessions'
@@ -280,6 +281,12 @@ const BackendInterface = ({ isDetached, onClose }) => {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {view === 'chat' ? (
               <>
+                <div className="flex justify-center mb-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-100 rounded-full">
+                    <Cpu size={10} className="text-green-600" />
+                    <span className="text-[9px] font-black text-green-700 uppercase tracking-tighter">System Context Loaded</span>
+                  </div>
+                </div>
                 {activeSession.messages.map((m, i) => (
                   <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[90%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-800'}`}>
@@ -306,12 +313,32 @@ const BackendInterface = ({ isDetached, onClose }) => {
           </div>
 
           {/* Debug Log Mini-Window */}
-          <div className="h-24 flex-shrink-0 border-t bg-gray-900 p-2 overflow-y-auto font-mono text-[9px] text-gray-400">
-            <div className="flex justify-between items-center text-gray-600 uppercase font-bold mb-1">
-              <span>Logs</span>
-              <button onClick={() => setDebugLogs([])} className="hover:text-white">Clear</button>
+          <div className={`flex-shrink-0 border-t bg-gray-900 transition-all duration-300 flex flex-col ${showLogs ? 'h-32' : 'h-8'}`}>
+            <div
+              className="flex justify-between items-center px-2 py-1.5 text-gray-600 uppercase font-bold text-[9px] cursor-pointer hover:bg-gray-800 transition-colors"
+              onClick={() => setShowLogs(!showLogs)}
+            >
+              <div className="flex items-center gap-2">
+                {showLogs ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                <span>Debug Logs</span>
+              </div>
+              {showLogs && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDebugLogs([]); }}
+                  className="hover:text-white transition-colors"
+                >Clear</button>
+              )}
             </div>
-            {debugLogs.map((log, i) => <div key={i} className={log.includes('ERROR') ? 'text-red-400' : log.includes('Success') ? 'text-green-400' : ''}>{log}</div>)}
+            {showLogs && (
+              <div className="flex-1 overflow-y-auto p-2 font-mono text-[9px] text-gray-400">
+                {debugLogs.map((log, i) => (
+                  <div key={i} className={log.includes('SYSTEM ERROR') ? 'text-red-400' : log.includes('Success') ? 'text-green-400' : ''}>
+                    {log}
+                  </div>
+                ))}
+                {debugLogs.length === 0 && <div className="text-gray-700 italic">No logs yet...</div>}
+              </div>
+            )}
           </div>
 
           {/* Input Area */}
