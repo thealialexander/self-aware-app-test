@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Send, Settings, ExternalLink, Trash2, X, Loader2,
   Play, FileCode, Package, Plus, MessageSquare,
-  ChevronRight, Save, History, Layout, ChevronDown, ChevronUp, Cpu
+  ChevronRight, Save, History, Layout, ChevronDown, ChevronUp, Cpu,
+  Edit2, Check
 } from 'lucide-react';
 import { callGemini, summarizeHistory } from '../services/gemini';
 import CodeApproval from './CodeApproval';
@@ -22,12 +23,17 @@ const BackendInterface = ({ isDetached, onClose }) => {
   const [input, setInput] = useState('');
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   const [showSettings, setShowSettings] = useState(!apiKey);
-  const [model, setModel] = useState(localStorage.getItem('gemini_model') || 'gemini-2.0-flash-exp');
+  const [model, setModel] = useState(localStorage.getItem('gemini_model') || 'gemini-3.1-flash-lite-preview');
   const [debugLogs, setDebugLogs] = useState([]);
-  const [showLogs, setShowLogs] = useState(true);
+  const [showLogs, setShowLogs] = useState(() => {
+    const saved = localStorage.getItem('show_debug_logs');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [loading, setLoading] = useState(false);
   const [pendingCode, setPendingCode] = useState(null);
   const [view, setView] = useState('chat'); // 'chat', 'files', 'sessions'
+  const [editingSessionId, setEditingSessionId] = useState(null);
+  const [editName, setEditName] = useState('');
   const chatEndRef = useRef(null);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
@@ -56,6 +62,10 @@ const BackendInterface = ({ isDetached, onClose }) => {
     localStorage.setItem('gemini_model', model);
   }, [model]);
 
+  useEffect(() => {
+    localStorage.setItem('show_debug_logs', JSON.stringify(showLogs));
+  }, [showLogs]);
+
   const addLog = (msg) => {
     setDebugLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-50));
   };
@@ -79,7 +89,6 @@ const BackendInterface = ({ isDetached, onClose }) => {
     addLog(`User: ${userPrompt}`);
 
     try {
-      // Get current code for context
       const frontend = await window.electronAPI.getSavedCode('frontend');
       const backend = await window.electronAPI.getSavedCode('backend');
 
@@ -95,7 +104,6 @@ const BackendInterface = ({ isDetached, onClose }) => {
       const assistantMsg = { role: 'assistant', content: responseText };
       updateActiveSession(s => ({ messages: [...s.messages, assistantMsg] }));
 
-      // Code extraction logic
       const frontendMatch = responseText.match(/```(?:javascript|js|jsx)\n([\s\S]*?)```/);
       const backendMatch = responseText.match(/```(?:backend|node|main|node\.js)\n([\s\S]*?)```/);
 
@@ -133,6 +141,18 @@ const BackendInterface = ({ isDetached, onClose }) => {
       if (activeSessionId === id) setActiveSessionId(nextSessions[0].id);
       addLog('Session deleted.');
     }
+  };
+
+  const startRenaming = (id, name) => {
+    setEditingSessionId(id);
+    setEditName(name);
+  };
+
+  const submitRename = () => {
+    if (!editName.trim()) return;
+    setSessions(prev => prev.map(s => s.id === editingSessionId ? { ...s, name: editName } : s));
+    setEditingSessionId(null);
+    addLog(`Session renamed to ${editName}`);
   };
 
   const compactSession = async () => {
@@ -229,16 +249,43 @@ const BackendInterface = ({ isDetached, onClose }) => {
                   className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${s.id === activeSessionId ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50 border border-transparent'}`}
                   onClick={() => { setActiveSessionId(s.id); setView('chat'); }}
                 >
-                  <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="flex items-center gap-2 overflow-hidden flex-1">
                     <MessageSquare size={14} className={s.id === activeSessionId ? 'text-blue-500' : 'text-gray-400'} />
-                    <span className={`text-xs truncate ${s.id === activeSessionId ? 'font-bold text-blue-700' : 'text-gray-600'}`}>{s.name}</span>
+                    {editingSessionId === s.id ? (
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') submitRename();
+                          if (e.key === 'Escape') setEditingSessionId(null);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white border rounded px-1 text-xs w-full outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span className={`text-xs truncate ${s.id === activeSessionId ? 'font-bold text-blue-700' : 'text-gray-600'}`}>{s.name}</span>
+                    )}
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 rounded"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  <div className={`flex items-center ${editingSessionId === s.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                    {editingSessionId === s.id ? (
+                      <button onClick={(e) => { e.stopPropagation(); submitRename(); }} className="p-1 text-green-600 hover:bg-green-100 rounded">
+                        <Check size={12} />
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={(e) => { e.stopPropagation(); startRenaming(s.id, s.name); }} className="p-1 text-gray-400 hover:bg-gray-100 rounded">
+                          <Edit2 size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                          className="p-1 text-red-400 hover:text-red-600 rounded"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -267,8 +314,13 @@ const BackendInterface = ({ isDetached, onClose }) => {
                     onChange={(e) => setModel(e.target.value)}
                     className="w-full p-2 bg-white border border-blue-200 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                   >
+                    <option value="gemini-3.1-flash-lite-preview">3.1 Flash Lite</option>
+                    <option value="gemini-3.1-pro-preview">3.1 Pro</option>
+                    <option value="gemini-3-flash-preview">3 Flash</option>
+                    <option value="gemini-2.5-flash">2.5 Flash</option>
+                    <option value="gemini-2.5-flash-lite">2.5 Flash Lite</option>
                     <option value="gemini-2.0-flash-exp">2.0 Flash</option>
-                    <option value="gemini-2.0-pro-exp-02-05">2.0 Pro (New)</option>
+                    <option value="gemini-2.0-pro-exp-02-05">2.0 Pro</option>
                     <option value="gemini-2.0-flash-thinking-exp-01-21">2.0 Thinking</option>
                     <option value="gemini-1.5-pro">1.5 Pro</option>
                     <option value="gemini-1.5-flash">1.5 Flash</option>
