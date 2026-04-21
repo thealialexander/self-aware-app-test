@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getGeneratedFiles: () => ipcRenderer.invoke('get-generated-files'),
   resetApp: () => ipcRenderer.invoke('reset-app'),
   buildDMG: () => ipcRenderer.invoke('build-dmg'),
-  onWindowFocus: (callback) => ipcRenderer.on('window-focus', callback),
-  onWindowBlur: (callback) => ipcRenderer.on('window-blur', callback),
+  onWindowFocus: (callback) => {
+    ipcRenderer.on('window-focus', callback);
+    return () => ipcRenderer.removeListener('window-focus', callback);
+  },
+  onWindowBlur: (callback) => {
+    ipcRenderer.on('window-blur', callback);
+    return () => ipcRenderer.removeListener('window-blur', callback);
+  },
 });

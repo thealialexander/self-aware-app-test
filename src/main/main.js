@@ -17,13 +17,17 @@ function getWindowState() {
   return { width: 1200, height: 800 };
 }
 
+let saveTimeout;
 function saveWindowState(win) {
-  try {
-    const bounds = win.getBounds();
-    fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
-  } catch (e) {
-    console.error('Error saving window state:', e);
-  }
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      const bounds = win.getBounds();
+      fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
+    } catch (e) {
+      console.error('Error saving window state:', e);
+    }
+  }, 500);
 }
 
 function runSavedBackendCode() {
@@ -48,8 +52,8 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     x: state.x,
     y: state.y,
-    width: state.width,
-    height: state.height,
+    width: state.width || 1200,
+    height: state.height || 800,
     show: false,
     backgroundColor,
     frame: false, // Frameless window
