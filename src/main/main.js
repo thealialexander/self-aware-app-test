@@ -1,8 +1,30 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 const isDev = !app.isPackaged;
+
+const WINDOW_STATE_PATH = path.join(app.getPath('userData'), 'window-state.json');
+
+function getWindowState() {
+  try {
+    if (fs.existsSync(WINDOW_STATE_PATH)) {
+      return JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('Error reading window state:', e);
+  }
+  return { width: 1200, height: 800 };
+}
+
+function saveWindowState(win) {
+  try {
+    const bounds = win.getBounds();
+    fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
+  } catch (e) {
+    console.error('Error saving window state:', e);
+  }
+}
 
 function runSavedBackendCode() {
   const userDataPath = app.getPath('userData');
@@ -20,15 +42,37 @@ function runSavedBackendCode() {
 }
 
 function createWindow() {
+  const state = getWindowState();
+  const backgroundColor = nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#ffffff';
+
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
+    show: false,
+    backgroundColor,
     frame: false, // Frameless window
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  mainWindow.on('resize', () => saveWindowState(mainWindow));
+  mainWindow.on('move', () => saveWindowState(mainWindow));
+
+  mainWindow.on('focus', () => {
+    mainWindow.webContents.send('window-focus');
+  });
+
+  mainWindow.on('blur', () => {
+    mainWindow.webContents.send('window-blur');
   });
 
   if (isDev) {
@@ -38,6 +82,13 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 }
+
+nativeTheme.on('updated', () => {
+  const backgroundColor = nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#ffffff';
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.setBackgroundColor(backgroundColor);
+  });
+});
 
 app.whenReady().then(() => {
   runSavedBackendCode();
