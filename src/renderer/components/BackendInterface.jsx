@@ -1,31 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Settings, ExternalLink, Trash2, X, Loader2, Play, FileCode, Package } from 'lucide-react';
-import { callGemini } from '../services/gemini';
+import {
+  Send, Settings, ExternalLink, Trash2, X, Loader2,
+  Play, FileCode, Package, Plus, MessageSquare,
+  ChevronRight, Save, History, Layout
+} from 'lucide-react';
+import { callGemini, summarizeHistory } from '../services/gemini';
 import CodeApproval from './CodeApproval';
 
 const BackendInterface = ({ isDetached, onClose }) => {
-  const [messages, setMessages] = useState(() => {
+  // Session Management
+  const [sessions, setSessions] = useState(() => {
     try {
-      const saved = localStorage.getItem('chat_history');
-      return saved ? JSON.parse(saved) : [];
+      const saved = localStorage.getItem('system_core_sessions');
+      return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Main Chat', messages: [], summary: null }];
     } catch (e) {
-      return [];
+      return [{ id: 'default', name: 'Main Chat', messages: [], summary: null }];
     }
   });
+  const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem('active_session_id') || 'default');
+
   const [input, setInput] = useState('');
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   const [showSettings, setShowSettings] = useState(!apiKey);
-  const [model, setModel] = useState(() => {
-    const saved = localStorage.getItem('gemini_model');
-    // Migration: ensure gemini-3.1-pro becomes gemini-3.1-pro-preview
-    if (saved === 'gemini-3.1-pro') return 'gemini-3.1-pro-preview';
-    return saved || 'gemini-3.1-flash-lite-preview';
-  });
+  const [model, setModel] = useState(localStorage.getItem('gemini_model') || 'gemini-2.0-flash-exp');
   const [debugLogs, setDebugLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pendingCode, setPendingCode] = useState(null);
-  const [view, setView] = useState('chat'); // 'chat' or 'files'
+  const [view, setView] = useState('chat'); // 'chat', 'files', 'sessions'
   const chatEndRef = useRef(null);
+
+  const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,11 +37,15 @@ const BackendInterface = ({ isDetached, onClose }) => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [activeSession.messages]);
 
   useEffect(() => {
-    localStorage.setItem('chat_history', JSON.stringify(messages));
-  }, [messages]);
+    localStorage.setItem('system_core_sessions', JSON.stringify(sessions));
+  }, [sessions]);
+
+  useEffect(() => {
+    localStorage.setItem('active_session_id', activeSessionId);
+  }, [activeSessionId]);
 
   useEffect(() => {
     localStorage.setItem('gemini_api_key', apiKey);
@@ -51,6 +59,10 @@ const BackendInterface = ({ isDetached, onClose }) => {
     setDebugLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-50));
   };
 
+  const updateActiveSession = (updater) => {
+    setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, ...updater(s) } : s));
+  };
+
   const handleSend = async () => {
     if (!input.trim() || !apiKey) {
       if (!apiKey) setShowSettings(true);
@@ -59,19 +71,32 @@ const BackendInterface = ({ isDetached, onClose }) => {
 
     const userPrompt = input;
     const userMsg = { role: 'user', content: userPrompt };
-    setMessages(prev => [...prev, userMsg]);
+
+    updateActiveSession(s => ({ messages: [...s.messages, userMsg] }));
     setInput('');
     setLoading(true);
     addLog(`User: ${userPrompt}`);
 
     try {
-      const responseText = await callGemini(userPrompt, messages, apiKey, model, addLog);
-      const assistantMsg = { role: 'assistant', content: responseText };
-      setMessages(prev => [...prev, assistantMsg]);
+      // Get current code for context
+      const frontend = await window.electronAPI.getSavedCode('frontend');
+      const backend = await window.electronAPI.getSavedCode('backend');
 
-      // Simple extraction of code blocks
+      const responseText = await callGemini({
+        prompt: userPrompt,
+        history: activeSession.messages,
+        apiKey,
+        preferredModel: model,
+        onLog: addLog,
+        currentCode: { frontend, backend }
+      });
+
+      const assistantMsg = { role: 'assistant', content: responseText };
+      updateActiveSession(s => ({ messages: [...s.messages, assistantMsg] }));
+
+      // Code extraction logic
       const frontendMatch = responseText.match(/```(?:javascript|js|jsx)\n([\s\S]*?)```/);
-      const backendMatch = responseText.match(/```(?:backend|node|main)\n([\s\S]*?)```/);
+      const backendMatch = responseText.match(/```(?:backend|node|main|node\.js)\n([\s\S]*?)```/);
 
       if (frontendMatch) {
         setPendingCode({ type: 'frontend', code: frontendMatch[1] });
@@ -81,18 +106,46 @@ const BackendInterface = ({ isDetached, onClose }) => {
 
     } catch (error) {
       addLog(`SYSTEM ERROR: ${error.message}`);
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
+      updateActiveSession(s => ({ messages: [...s.messages, { role: 'assistant', content: `Error: ${error.message}` }] }));
     } finally {
       setLoading(false);
     }
   };
 
-  const clearHistory = () => {
-    if (confirm('Clear chat history?')) {
-      setMessages([]);
-      localStorage.removeItem('chat_history');
-      addLog('Chat history cleared.');
+  const createNewSession = () => {
+    const newId = Date.now().toString();
+    const newSession = { id: newId, name: `Chat ${sessions.length + 1}`, messages: [], summary: null };
+    setSessions(prev => [...prev, newSession]);
+    setActiveSessionId(newId);
+    setView('chat');
+    addLog('New session created.');
+  };
+
+  const deleteSession = (id) => {
+    if (sessions.length === 1) {
+       updateActiveSession(() => ({ messages: [], summary: null }));
+       return;
     }
+    if (confirm('Delete this session?')) {
+      const nextSessions = sessions.filter(s => s.id !== id);
+      setSessions(nextSessions);
+      if (activeSessionId === id) setActiveSessionId(nextSessions[0].id);
+      addLog('Session deleted.');
+    }
+  };
+
+  const compactSession = async () => {
+    setLoading(true);
+    addLog("Compacting session history...");
+    const summary = await summarizeHistory(activeSession.messages, apiKey, model);
+    if (summary) {
+      updateActiveSession(s => ({
+        summary,
+        messages: [{ role: 'assistant', content: `CONTEXT SUMMARY: ${summary}` }]
+      }));
+      addLog("Session compacted successfully.");
+    }
+    setLoading(false);
   };
 
   const handleApprove = async () => {
@@ -103,7 +156,6 @@ const BackendInterface = ({ isDetached, onClose }) => {
       if (pendingCode.type === 'backend') {
         window.electronAPI.runBackend();
       } else {
-        // For frontend, we trigger a custom event that App.jsx listens for
         const event = new CustomEvent('frontend-code-updated', { detail: pendingCode.code });
         window.dispatchEvent(event);
       }
@@ -125,166 +177,181 @@ const BackendInterface = ({ isDetached, onClose }) => {
         />
       )}
 
-      {/* Header - Fixed Height */}
-      <div className="flex items-center justify-between h-12 px-4 border-b bg-gray-100 flex-shrink-0 z-30 shadow-sm">
-        <div className="flex items-center gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between h-12 px-4 border-b bg-gray-50 flex-shrink-0 z-30 shadow-sm">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-1.5 rounded-md transition-colors no-drag ${showSettings ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 text-gray-600 hover:text-blue-600'}`}
-            title="Settings"
+            onClick={() => setView(view === 'sessions' ? 'chat' : 'sessions')}
+            className={`p-1.5 rounded-md transition-colors no-drag ${view === 'sessions' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 text-gray-600'}`}
           >
-            <Settings size={18} />
+            <History size={18} />
           </button>
-          <h2 className="font-semibold text-sm">System Backend</h2>
-          <div className="flex bg-gray-200 rounded p-0.5 text-[10px] font-bold uppercase no-drag">
-             <button
-               onClick={() => setView('chat')}
-               className={`px-3 py-0.5 rounded ${view === 'chat' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-             >Chat</button>
-             <button
-               onClick={() => setView('files')}
-               className={`px-3 py-0.5 rounded ${view === 'files' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-             >Files</button>
+          <div className="h-4 w-px bg-gray-300 mx-1" />
+          <h2 className="font-bold text-xs truncate max-w-[150px]">{activeSession.name}</h2>
+          <div className="flex bg-gray-200 rounded p-0.5 text-[9px] font-black uppercase no-drag ml-2">
+             <button onClick={() => setView('chat')} className={`px-2 py-0.5 rounded ${view === 'chat' ? 'bg-white shadow-xs' : 'text-gray-500'}`}>Chat</button>
+             <button onClick={() => setView('files')} className={`px-2 py-0.5 rounded ${view === 'files' ? 'bg-white shadow-xs' : 'text-gray-500'}`}>System</button>
           </div>
         </div>
+
         <div className="flex items-center gap-2 no-drag">
+          <button onClick={() => setShowSettings(!showSettings)} className={`p-1.5 rounded hover:bg-gray-200 ${showSettings ? 'text-blue-600' : 'text-gray-400'}`}>
+            <Settings size={16} />
+          </button>
           {!isDetached && (
-            <button onClick={() => window.electronAPI.openDetached()} className="p-1 hover:bg-gray-200 rounded" title="Detach Window">
+            <button onClick={() => window.electronAPI.openDetached()} className="p-1.5 hover:bg-gray-200 rounded text-gray-400">
               <ExternalLink size={16} />
             </button>
           )}
-          <button onClick={clearHistory} className="p-1 hover:bg-gray-200 rounded text-red-500" title="Clear History">
-            <Trash2 size={16} />
-          </button>
           {!isDetached && (
-            <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded" title="Hide Interface">
-              <X size={16} />
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded text-gray-400">
+              <X size={18} />
             </button>
           )}
         </div>
       </div>
 
-      {showSettings && (
-        <div className="p-4 border-b bg-blue-50/50 backdrop-blur-md flex-shrink-0 z-20">
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-between items-center">
-              <label className="text-xs font-black text-blue-900 uppercase tracking-tighter">Gemini Config</label>
-              <button onClick={() => setShowSettings(false)} className="text-blue-400 hover:text-blue-600">
-                <X size={14} />
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Sidebar / Sessions View */}
+        {view === 'sessions' && (
+          <div className="absolute inset-0 bg-white z-40 flex flex-col border-r shadow-xl max-w-[280px] animate-in slide-in-from-left duration-200">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Conversations</span>
+              <button onClick={createNewSession} className="p-1 hover:bg-blue-100 text-blue-600 rounded">
+                <Plus size={18} />
               </button>
             </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-blue-700">API KEY</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full p-2 bg-white border border-blue-200 rounded text-sm no-drag focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="Paste your Google AI Studio key..."
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-blue-700 uppercase">Preferred Model</label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full p-2 bg-white border border-blue-200 rounded text-sm no-drag focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              >
-                <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite (Preview)</option>
-                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
-                <option value="gemini-3-flash-preview">Gemini 3 Flash (Preview)</option>
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Exp)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-              </select>
-            </div>
-
-            <button
-              onClick={() => setShowSettings(false)}
-              className="mt-2 bg-blue-600 text-white p-2 rounded text-sm font-black hover:bg-blue-700 no-drag transition-all shadow-md active:scale-95"
-            >
-              SAVE CONFIGURATION
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden bg-white">
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
-          {view === 'chat' ? (
-            <>
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-3 rounded-lg text-sm ${m.role === 'user' ? 'bg-blue-100 text-blue-900' : 'bg-gray-100 text-gray-900'}`}>
-                    <pre className="whitespace-pre-wrap font-sans">{m.content}</pre>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {sessions.map(s => (
+                <div
+                  key={s.id}
+                  className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${s.id === activeSessionId ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50 border border-transparent'}`}
+                  onClick={() => { setActiveSessionId(s.id); setView('chat'); }}
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <MessageSquare size={14} className={s.id === activeSessionId ? 'text-blue-500' : 'text-gray-400'} />
+                    <span className={`text-xs truncate ${s.id === activeSessionId ? 'font-bold text-blue-700' : 'text-gray-600'}`}>{s.name}</span>
                   </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 rounded"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               ))}
-              {messages.length === 0 && (
-                <div className="text-center text-gray-400 mt-10">
-                  <p className="text-sm">Describe the feature you want to build.</p>
-                  <p className="text-xs mt-2 italic">"Create a todo list with a glassmorphism effect."</p>
+            </div>
+          </div>
+        )}
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white">
+          {showSettings && (
+            <div className="p-4 border-b bg-blue-50/80 backdrop-blur flex-shrink-0 z-20">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-blue-800 uppercase">Gemini API Key</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full p-2 bg-white border border-blue-200 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Key..."
+                  />
                 </div>
-              )}
-              <div ref={chatEndRef} />
-            </>
-          ) : (
-            <FileView addLog={addLog} />
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-blue-800 uppercase">Model</label>
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="w-full p-2 bg-white border border-blue-200 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="gemini-2.0-flash-exp">2.0 Flash</option>
+                    <option value="gemini-2.0-pro-exp-02-05">2.0 Pro (New)</option>
+                    <option value="gemini-2.0-flash-thinking-exp-01-21">2.0 Thinking</option>
+                    <option value="gemini-1.5-pro">1.5 Pro</option>
+                    <option value="gemini-1.5-flash">1.5 Flash</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           )}
-        </div>
 
-        <div className="h-32 flex-shrink-0 border-t bg-gray-900 text-green-400 p-2 overflow-y-auto font-mono text-[10px] z-20">
-        <div className="flex justify-between items-center mb-1 text-gray-500 uppercase font-bold sticky top-0 bg-gray-900 z-20">
-           <span>Debug Log</span>
-           <button onClick={() => setDebugLogs([])} className="hover:text-white">Clear</button>
-        </div>
-          {debugLogs.map((log, i) => <div key={i}>{log}</div>)}
-        </div>
-      </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {view === 'chat' ? (
+              <>
+                {activeSession.messages.map((m, i) => (
+                  <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[90%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-800'}`}>
+                      <pre className="whitespace-pre-wrap font-sans leading-relaxed">{m.content}</pre>
+                    </div>
+                  </div>
+                ))}
+                {activeSession.messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-4 pt-10">
+                    <div className="p-4 bg-gray-50 rounded-full">
+                       <Layout size={40} className="text-gray-200" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-500">Ready to build?</p>
+                      <p className="text-xs text-gray-400 max-w-[200px] mt-1">History is specific to this chat, but modifications persist across the entire system.</p>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </>
+            ) : view === 'files' ? (
+              <FileView addLog={addLog} onCompact={compactSession} canCompact={activeSession.messages.length > 5} />
+            ) : null}
+          </div>
 
-      <div className="p-3 border-t bg-white flex-shrink-0 z-20">
-        <div className="flex gap-2 items-end">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="Type your instructions..."
-            className="flex-1 border rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 no-drag resize-none"
-            rows={2}
-          />
-          <button
-            onClick={handleSend}
-            disabled={loading}
-            className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition-colors no-drag disabled:opacity-50"
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-          </button>
+          {/* Debug Log Mini-Window */}
+          <div className="h-24 flex-shrink-0 border-t bg-gray-900 p-2 overflow-y-auto font-mono text-[9px] text-gray-400">
+            <div className="flex justify-between items-center text-gray-600 uppercase font-bold mb-1">
+              <span>Logs</span>
+              <button onClick={() => setDebugLogs([])} className="hover:text-white">Clear</button>
+            </div>
+            {debugLogs.map((log, i) => <div key={i} className={log.includes('ERROR') ? 'text-red-400' : log.includes('Success') ? 'text-green-400' : ''}>{log}</div>)}
+          </div>
+
+          {/* Input Area */}
+          <div className="p-3 border-t bg-white">
+            <div className="flex gap-2 items-end">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Ask Gemini to modify the app..."
+                className="flex-1 border border-gray-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 no-drag resize-none bg-gray-50"
+                rows={2}
+              />
+              <button
+                onClick={handleSend}
+                disabled={loading || !input.trim()}
+                className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-all no-drag disabled:opacity-50 shadow-lg active:scale-95"
+              >
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-const FileView = ({ addLog }) => {
+const FileView = ({ addLog, onCompact, canCompact }) => {
   const [files, setFiles] = useState([]);
   const [isBuilding, setIsBuilding] = useState(false);
   const [viewingFile, setViewingFile] = useState(null);
 
   useEffect(() => {
     const loadFiles = async () => {
-      if (!window.electronAPI) {
-        addLog("Electron API not found. Are you running in a browser?");
-        return;
-      }
       try {
         const fileList = await window.electronAPI.getGeneratedFiles();
         setFiles(fileList || []);
@@ -297,101 +364,99 @@ const FileView = ({ addLog }) => {
 
   const handleBuild = async () => {
     setIsBuilding(true);
-    addLog("Starting DMG build process... This may take a few minutes.");
+    addLog("Starting DMG build...");
     try {
-      const result = await window.electronAPI.buildDMG();
-      addLog("Build successful! Check the 'dist_electron' folder in your project directory.");
-      alert("DMG Build Complete! Check dist_electron folder.");
+      await window.electronAPI.buildDMG();
+      addLog("Build successful! Check dist_electron.");
     } catch (err) {
       addLog(`Build failed: ${err}`);
-      alert(`Build failed: ${err}`);
     } finally {
       setIsBuilding(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg mb-4">
-        <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-1">Runtime Engine Status</h4>
-        <p className="text-[11px] text-blue-700 leading-tight">
-          These files are dynamically loaded by the application shell. <code className="bg-blue-100 px-1 rounded">renderer.js</code> controls the UI, and <code className="bg-blue-100 px-1 rounded">backend.js</code> runs in the Electron Main process.
-        </p>
-      </div>
-
-      <div className="flex justify-between items-center border-b pb-1">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Generated Assets</h3>
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={onCompact}
+          disabled={!canCompact}
+          className="flex flex-col items-center justify-center p-4 bg-gray-50 border border-dashed rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all group disabled:opacity-50 disabled:hover:bg-gray-50"
+        >
+          <History size={20} className="text-gray-400 group-hover:text-blue-500 mb-2" />
+          <span className="text-[10px] font-bold text-gray-500 group-hover:text-blue-700">COMPACT HISTORY</span>
+        </button>
         <button
           onClick={handleBuild}
           disabled={isBuilding}
-          className="flex items-center gap-1.5 px-2 py-1 bg-green-50 text-green-700 rounded text-[10px] font-bold hover:bg-green-100 disabled:opacity-50 transition-colors"
+          className="flex flex-col items-center justify-center p-4 bg-gray-50 border border-dashed rounded-xl hover:bg-green-50 hover:border-green-200 transition-all group disabled:opacity-50"
         >
-          {isBuilding ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
-          {isBuilding ? "BUILDING DMG..." : "BUILD DMG"}
+          {isBuilding ? <Loader2 size={20} className="animate-spin text-green-600 mb-2" /> : <Package size={20} className="text-gray-400 group-hover:text-green-500 mb-2" />}
+          <span className="text-[10px] font-bold text-gray-500 group-hover:text-green-700">{isBuilding ? 'BUILDING...' : 'RELEASE DMG'}</span>
         </button>
       </div>
-      {files.length === 0 ? (
-        <p className="text-xs text-gray-500 italic">No files generated yet.</p>
-      ) : (
-        <div className="grid gap-2">
-          {files.map(file => (
-            <div key={file.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
-              <div className="flex items-center gap-3">
-                <FileCode size={20} className="text-blue-500" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">{file.name}</p>
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">{file.type}</p>
-                </div>
+
+      <div className="space-y-2">
+        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Active Filesystem</h3>
+        {files.map(file => (
+          <div key={file.name} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${file.type === 'frontend' ? 'bg-blue-50 text-blue-500' : 'bg-purple-50 text-purple-500'}`}>
+                <FileCode size={18} />
               </div>
-              <button
-                onClick={async () => {
-                  const content = await window.electronAPI.getSavedCode(file.type);
-                  setViewingFile({ name: file.name, content });
-                }}
-                className="text-xs text-blue-600 hover:underline"
-              >View Source</button>
+              <div>
+                <p className="text-xs font-bold text-gray-700">{file.name}</p>
+                <p className="text-[9px] text-gray-400 font-bold uppercase">{file.type}</p>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+            <button
+              onClick={async () => {
+                const content = await window.electronAPI.getSavedCode(file.type);
+                setViewingFile({ name: file.name, content });
+              }}
+              className="p-1.5 hover:bg-gray-100 rounded text-gray-400 hover:text-blue-600"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        ))}
+      </div>
 
       {viewingFile && (
-        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-6 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[85vh]">
-            <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh] border border-gray-800">
+            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
               <div className="flex items-center gap-2">
-                 <FileCode size={18} className="text-blue-600" />
-                 <h3 className="font-bold text-sm">{viewingFile.name}</h3>
+                 <FileCode size={18} className="text-blue-400" />
+                 <h3 className="font-bold text-sm text-gray-200">{viewingFile.name}</h3>
               </div>
-              <button onClick={() => setViewingFile(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setViewingFile(null)} className="text-gray-500 hover:text-white">
                 <X size={20} />
               </button>
             </div>
-            <div className="flex-1 overflow-auto bg-gray-900 p-4">
-               <pre className="text-green-400 text-xs font-mono whitespace-pre">
+            <div className="flex-1 overflow-auto p-4 font-mono text-[11px] leading-relaxed">
+               <pre className="text-blue-300">
                 {viewingFile.content}
               </pre>
             </div>
-            <div className="p-3 border-t bg-gray-50 rounded-b-xl flex justify-end">
-               <button
-                 onClick={() => setViewingFile(null)}
-                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold"
-               >Close</button>
+            <div className="p-4 border-t border-gray-800 flex justify-end">
+               <button onClick={() => setViewingFile(null)} className="px-6 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-500">CLOSE SOURCE</button>
             </div>
           </div>
         </div>
       )}
-      <div className="pt-4 border-t mt-10">
+
+      <div className="pt-10">
          <button
            onClick={async () => {
-             if(confirm("DANGER: This will permanently DELETE all generated code AND clear all settings (API keys, history). This cannot be undone. Continue?")) {
+             if(confirm("DANGER: Wipe all data?")) {
                localStorage.clear();
                await window.electronAPI.resetApp();
                window.location.reload();
              }
            }}
-           className="w-full py-2 bg-red-50 text-red-600 border border-red-100 rounded text-xs font-bold hover:bg-red-100 transition-colors"
-         >RESET ENTIRE APP & SETTINGS</button>
+           className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all"
+         >Factory Reset System</button>
       </div>
     </div>
   );
