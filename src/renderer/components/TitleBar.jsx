@@ -1,54 +1,29 @@
 import React from 'react';
-import { Minus, Square, X, Terminal } from 'lucide-react';
 
 const TitleBar = ({ onToggleBackend, isActive }) => {
-  const handleMinimize = () => window.electronAPI?.minimize();
-  const handleMaximize = () => window.electronAPI?.maximize();
-  const handleClose = () => window.electronAPI?.close();
-
   return (
-    <div className="h-12 bg-gray-900 text-white flex items-center justify-between px-4 border-b border-black select-none z-[100] flex-shrink-0" style={{ WebkitAppRegion: 'drag' }}>
-      <div className="flex items-center gap-4">
-        {/* Window Controls (macOS style) */}
-        <div className="flex gap-2 no-drag py-2">
+    <div className="h-7 bg-[#323232] text-white flex items-center justify-between px-3 border-b border-black/40 select-none z-[100] flex-shrink-0 relative" style={{ WebkitAppRegion: 'drag' }}>
+      {/* Spacer for native macOS traffic lights (approx 72px) */}
+      <div className="w-[72px] flex-shrink-0" />
+
+      <div className="absolute left-1/2 -translate-x-1/2 text-[11px] text-gray-400 font-medium tracking-tight pointer-events-none">
+        Applet
+      </div>
+
+      <div className="flex items-center">
+        {/* The Code Button */}
+        <div className="group/code no-drag">
           <button
-            onClick={handleClose}
-            className="w-3.5 h-3.5 rounded-full bg-[#ff5f56] hover:bg-[#ff5f56]/80 flex items-center justify-center group border border-black/10"
-            title="Close"
+            onClick={onToggleBackend}
+            className={`w-3 h-3 rounded-full transition-all flex items-center justify-center border border-black/15 shadow-inner active:brightness-75 ${isActive ? 'bg-[#007aff] shadow-lg shadow-blue-900/50' : 'bg-[#007aff]'}`}
+            title="Toggle Backend Interface"
           >
-            <X size={8} className="text-black opacity-0 group-hover:opacity-40" />
-          </button>
-          <button
-            onClick={handleMinimize}
-            className="w-3.5 h-3.5 rounded-full bg-[#ffbd2e] hover:bg-[#ffbd2e]/80 flex items-center justify-center group border border-black/10"
-            title="Minimize"
-          >
-            <Minus size={8} className="text-black opacity-0 group-hover:opacity-40" />
-          </button>
-          <button
-            onClick={handleMaximize}
-            className="w-3.5 h-3.5 rounded-full bg-[#27c93f] hover:bg-[#27c93f]/80 flex items-center justify-center group border border-black/10"
-            title="Maximize"
-          >
-            <Square size={6} className="text-black opacity-0 group-hover:opacity-40" />
+            <svg width="12" height="12" viewBox="0 0 12 12" className="opacity-0 group-hover/code:opacity-100 transition-opacity pointer-events-none">
+              <path d="M4.5 4.5L3 6l1.5 1.5M7.5 4.5L9 6 7.5 7.5M6.5 3.5l-1 5" fill="none" stroke="#1e3a8a" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </button>
         </div>
-
-        {/* The Hidden Backend Button - Right next to controls */}
-        <button
-          onClick={onToggleBackend}
-          className={`p-1.5 rounded-md transition-all no-drag ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-gray-800 text-gray-400 hover:text-white'}`}
-          title="Toggle Backend Interface"
-        >
-          <Terminal size={18} />
-        </button>
       </div>
-
-      <div className="text-[11px] text-gray-500 font-bold tracking-[0.2em] uppercase">
-        System Core
-      </div>
-
-      <div className="w-20"></div> {/* Spacer to center the title if needed */}
     </div>
   );
 };
