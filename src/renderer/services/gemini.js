@@ -1,6 +1,11 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const VALID_MODELS = [
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
   "gemini-2.0-flash-exp",
   "gemini-2.0-pro-exp-02-05",
   "gemini-2.0-flash-thinking-exp-01-21",
