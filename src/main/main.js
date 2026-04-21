@@ -22,6 +22,7 @@ function saveWindowState(win) {
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
     try {
+      if (win.isDestroyed()) return;
       const bounds = win.getBounds();
       fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
     } catch (e) {
@@ -54,7 +55,7 @@ function createWindow() {
     y: state.y,
     width: state.width || 1200,
     height: state.height || 800,
-    show: false,
+    show: true, // Immediate show for stability
     backgroundColor,
     frame: false, // Frameless window
     webPreferences: {
@@ -62,10 +63,6 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
-  });
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
   });
 
   mainWindow.on('resize', () => saveWindowState(mainWindow));
@@ -90,7 +87,9 @@ function createWindow() {
 nativeTheme.on('updated', () => {
   const backgroundColor = nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#ffffff';
   BrowserWindow.getAllWindows().forEach(win => {
-    win.setBackgroundColor(backgroundColor);
+    if (!win.isDestroyed()) {
+      win.setBackgroundColor(backgroundColor);
+    }
   });
 });
 

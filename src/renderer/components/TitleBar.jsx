@@ -34,13 +34,13 @@ const TitleBar = ({ onToggleBackend, isActive, isFocused }) => {
           </button>
         </div>
 
-        {/* The Hidden Backend Button - Right next to controls */}
+        {/* The Hidden Backend Button - Circular Terminal button */}
         <button
           onClick={onToggleBackend}
-          className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-all no-drag ml-1 ${isActive ? 'bg-[#007aff] text-white' : isFocused ? 'bg-[#4a4a4a] text-gray-400 hover:bg-[#5a5a5a]' : 'bg-[#3a3a3a] text-gray-600'}`}
+          className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-all no-drag ml-1 group/btn ${isActive ? 'bg-[#007aff] text-white' : isFocused ? 'bg-[#4a4a4a] text-gray-400 hover:bg-[#5a5a5a]' : 'bg-[#3a3a3a] text-gray-600'}`}
           title="Toggle Backend Interface"
         >
-          <Terminal size={7} strokeWidth={6} className={isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 transition-opacity'} />
+          <Terminal size={7} strokeWidth={6} className={isActive ? 'opacity-100' : 'opacity-0 group-hover/btn:opacity-100 transition-opacity'} />
         </button>
       </div>
 
