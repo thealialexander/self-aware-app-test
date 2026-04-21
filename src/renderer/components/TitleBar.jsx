@@ -1,5 +1,5 @@
 import React from 'react';
-import { Minus, Square, X, Terminal } from 'lucide-react';
+import { Minus, X, Maximize2, Terminal } from 'lucide-react';
 
 const TitleBar = ({ onToggleBackend, isActive, isFocused }) => {
   const handleMinimize = () => window.electronAPI?.minimize();
@@ -7,48 +7,48 @@ const TitleBar = ({ onToggleBackend, isActive, isFocused }) => {
   const handleClose = () => window.electronAPI?.close();
 
   return (
-    <div className={`h-12 flex items-center justify-between px-4 border-b select-none z-[100] flex-shrink-0 transition-colors duration-200 ${isFocused ? 'bg-gray-900 border-black text-white' : 'bg-gray-800 border-gray-900 text-gray-500'}`} style={{ WebkitAppRegion: 'drag' }}>
-      <div className="flex items-center gap-4">
+    <div
+      className={`h-7 flex items-center justify-between px-3 select-none z-[100] flex-shrink-0 transition-colors duration-200 ${isFocused ? 'bg-[#323232] text-[#9a9a9a]' : 'bg-[#282828] text-[#5a5a5a]'}`}
+      style={{ WebkitAppRegion: 'drag' }}
+    >
+      <div className="flex items-center gap-2">
         {/* Window Controls (macOS style) */}
-        <div className="flex gap-2 no-drag py-2">
+        <div className="flex gap-[8px] no-drag group">
           <button
             onClick={handleClose}
-            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center group border border-black/10 transition-colors ${isFocused ? 'bg-[#ff5f56] hover:bg-[#ff5f56]/80' : 'bg-gray-700'}`}
-            title="Close"
+            className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-colors ${isFocused ? 'bg-[#ff5f57]' : 'bg-[#4a4a4a]'}`}
           >
-            <X size={8} className="text-black opacity-0 group-hover:opacity-40" />
+            <X size={7} strokeWidth={6} className="text-black/50 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
           <button
             onClick={handleMinimize}
-            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center group border border-black/10 transition-colors ${isFocused ? 'bg-[#ffbd2e] hover:bg-[#ffbd2e]/80' : 'bg-gray-700'}`}
-            title="Minimize"
+            className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-colors ${isFocused ? 'bg-[#febc2e]' : 'bg-[#4a4a4a]'}`}
           >
-            <Minus size={8} className="text-black opacity-0 group-hover:opacity-40" />
+            <Minus size={7} strokeWidth={6} className="text-black/50 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
           <button
             onClick={handleMaximize}
-            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center group border border-black/10 transition-colors ${isFocused ? 'bg-[#27c93f] hover:bg-[#27c93f]/80' : 'bg-gray-700'}`}
-            title="Maximize"
+            className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-colors ${isFocused ? 'bg-[#28c840]' : 'bg-[#4a4a4a]'}`}
           >
-            <Square size={6} className="text-black opacity-0 group-hover:opacity-40" />
+            <Maximize2 size={7} strokeWidth={6} className="text-black/50 opacity-0 group-hover:opacity-100 transition-opacity rotate-45" />
           </button>
         </div>
 
         {/* The Hidden Backend Button - Right next to controls */}
         <button
           onClick={onToggleBackend}
-          className={`p-1.5 rounded-md transition-all no-drag ${isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-gray-800 text-gray-400 hover:text-white'}`}
+          className={`w-[12px] h-[12px] rounded-full flex items-center justify-center transition-all no-drag ml-1 ${isActive ? 'bg-[#007aff] text-white' : isFocused ? 'bg-[#4a4a4a] text-gray-400 hover:bg-[#5a5a5a]' : 'bg-[#3a3a3a] text-gray-600'}`}
           title="Toggle Backend Interface"
         >
-          <Terminal size={18} />
+          <Terminal size={7} strokeWidth={6} className={isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 transition-opacity'} />
         </button>
       </div>
 
-      <div className="text-[11px] text-gray-500 font-bold tracking-[0.2em] uppercase">
+      <div className="absolute left-1/2 -translate-x-1/2 text-[9px] font-bold tracking-[0.15em] uppercase pointer-events-none">
         System Core
       </div>
 
-      <div className="w-20"></div> {/* Spacer to center the title if needed */}
+      <div className="w-16"></div> {/* Spacer */}
     </div>
   );
 };
